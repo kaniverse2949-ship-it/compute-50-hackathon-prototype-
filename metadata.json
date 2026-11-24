@@ -1,0 +1,6 @@
+{
+  "name": "First Cure",
+  "description": "Mobile-first bilingual healthcare platform connecting patients and doctors with transparent AI care navigation, verified portfolios, and consent-first appointment management.",
+  "requestFramePermissions": ["geolocation", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
