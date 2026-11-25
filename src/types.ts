@@ -61,6 +61,31 @@ export interface AvailabilitySlot {
   times: string[];
 }
 
+export interface DoctorReview {
+  id: string;
+  doctorId: string;
+  patientId?: string;
+  appointmentId: string;
+  patientDisplayName: string;
+  verifiedVisit: boolean;
+  visitDate: string;
+  overallRating: number;
+  communicationRating: number;
+  empathyRating: number;
+  waitTimeRating: number;
+  highlights: string[];
+  comment: string;
+  createdAt: string;
+}
+
+export interface DoctorRatingSummary {
+  totalReviews: number;
+  averageOverall: number;
+  averageCommunication: number;
+  averageEmpathy: number;
+  averageWaitTime: number;
+}
+
 export interface DoctorProfile {
   id: string;
   userId?: string;
@@ -105,6 +130,8 @@ export interface DoctorProfile {
   supervisorDoctorName?: string;
   menteeDoctorIds: string[];
   peerIds: string[];
+  reviews?: DoctorReview[];
+  ratingSummary?: DoctorRatingSummary;
 }
 
 export interface Appointment {

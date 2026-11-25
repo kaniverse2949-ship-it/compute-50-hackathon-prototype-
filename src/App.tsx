@@ -19,6 +19,7 @@ export default function App() {
     }
     return false;
   });
+  const [largeText, setLargeText] = useState<boolean>(false);
 
   // Session token kept strictly in React memory (never localStorage/sessionStorage)
   const [token, setToken] = useState<string | null>(null);
@@ -43,9 +44,17 @@ export default function App() {
     setUser(null);
   };
 
+  const rootClassName = [
+    'min-h-screen',
+    calmMotion ? 'fc-calm-motion' : '',
+    largeText ? 'fc-text-large' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <MotionConfig reducedMotion={calmMotion ? 'always' : 'user'}>
-      <div className={calmMotion ? 'fc-calm-motion min-h-screen' : 'min-h-screen'}>
+      <div className={rootClassName}>
         {mapsQuotaExceeded && (
           <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
             <span>
@@ -70,6 +79,8 @@ export default function App() {
             onSelectLanguage={setLanguage}
             calmMotion={calmMotion}
             onToggleCalmMotion={() => setCalmMotion((c) => !c)}
+            largeText={largeText}
+            onToggleLargeText={() => setLargeText((v) => !v)}
             onAuthenticated={handleAuthenticated}
           />
         ) : user.role === 'doctor' ? (
@@ -87,9 +98,12 @@ export default function App() {
             token={token}
             user={user}
             language={language}
+            onChangeLanguage={setLanguage}
             calmMotion={calmMotion}
             onUpdateUser={setUser}
             onToggleCalmMotion={() => setCalmMotion((c) => !c)}
+            largeText={largeText}
+            onToggleLargeText={() => setLargeText((v) => !v)}
             onSignOut={handleSignOut}
           />
         )}

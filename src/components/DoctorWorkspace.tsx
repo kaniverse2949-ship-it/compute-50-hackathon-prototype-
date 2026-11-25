@@ -39,7 +39,9 @@ import type {
   ReferralRequest,
   SupervisionRequest,
 } from '../types';
+import { AppFooter } from './AppFooter';
 import { SpringButton } from './MotionPrimitives';
+import { VerifiedFeedbackSection } from './VerifiedFeedbackSection';
 
 interface DoctorWorkspaceProps {
   token: string;
@@ -992,6 +994,15 @@ export function DoctorWorkspace({
                       </SpringButton>
                     </form>
                   </div>
+
+                  {/* Verified Patient Feedback & Structured Ratings Received */}
+                  <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
+                    <VerifiedFeedbackSection
+                      doctor={myProfile}
+                      language={language}
+                      isPatient={false}
+                    />
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -1485,6 +1496,8 @@ export function DoctorWorkspace({
           </AnimatePresence>
         )}
       </main>
+
+      <AppFooter language={language} hasBottomNav />
 
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 grid grid-cols-3 h-16">
         {navItems.map((item) => {

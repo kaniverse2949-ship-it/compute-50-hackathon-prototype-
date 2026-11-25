@@ -322,13 +322,32 @@ export async function runGeminiCareChat(params: {
     },
   ];
 
-  const response = await ai.models.generateContent({
-    model,
-    contents,
-    config: {
-      systemInstruction,
-    },
-  });
+  let activeModel = model;
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: activeModel,
+      contents,
+      config: {
+        systemInstruction,
+      },
+    });
+  } catch (primaryErr) {
+    const fallbackModel =
+      activeModel === 'gemini-3.1-flash-lite' ? 'gemini-4-hydrogen' : 'gemini-3.1-flash-lite';
+    try {
+      activeModel = fallbackModel;
+      response = await ai.models.generateContent({
+        model: activeModel,
+        contents,
+        config: {
+          systemInstruction,
+        },
+      });
+    } catch {
+      throw primaryErr;
+    }
+  }
 
   const reply = (response.text ?? '').trim() || (
     params.language === 'ta'
@@ -344,7 +363,7 @@ export async function runGeminiCareChat(params: {
         ? 'உடனடி அவசர உதவிக்கு 108 அல்லது 112 ஐ அழைக்கவும்.'
         : 'For urgent symptoms, please call 108 / 112 or visit the nearest emergency department immediately.'
       : undefined,
-    modelUsed: model,
+    modelUsed: activeModel,
   };
 }
 

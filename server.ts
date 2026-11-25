@@ -14,6 +14,7 @@ import { getLanguageLabel, isSupportedLanguage, parseLanguage } from './src/i18n
 import { hashPassword, verifyPassword } from './src/server/seedData.ts';
 import type { StoredUser } from './src/server/seedData.ts';
 import {
+  computeRatingSummary,
   countActiveAppointmentsOnDate,
   createAccountWithOptionalDoctor,
   createAppointmentRecord,
@@ -30,6 +31,7 @@ import {
   findUserByUid,
   listAllDoctors,
   listAppointmentsForUser,
+  listDoctorReviews,
   listPeerDiscussions,
   listRecordsForUser,
   listReferralsForUser,
@@ -40,6 +42,7 @@ import {
   updatePeerDiscussionReplies,
   updateReferralConsent,
   updateUserPreferences,
+  upsertDoctorReview,
   upsertGoogleUser,
 } from './src/db/repository.ts';
 import {
@@ -54,6 +57,8 @@ import type {
   ChatMessage,
   CredentialItem,
   DoctorProfile,
+  DoctorRatingSummary,
+  DoctorReview,
   Language,
   PatientHealthRecord,
   PeerDiscussion,
@@ -528,6 +533,140 @@ async function startServer(): Promise<void> {
       res.json({ doctors: results });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load doctors.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/doctors/:id/reviews', async (req, res) => {
+    try {
+      const doctorId = sanitizeString(req.params.id, 80);
+      const doctor = await findDoctorById(doctorId);
+      if (!doctor) {
+        res.status(404).json({ error: 'Doctor not found.' });
+        return;
+      }
+      const reviews = await listDoctorReviews(doctor.id);
+      const summary: DoctorRatingSummary = computeRatingSummary(reviews);
+      res.json({ reviews, summary });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load doctor reviews.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/doctors/:id/reviews', requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = req.authUser!;
+      if (user.role !== 'patient') {
+        res.status(403).json({
+          error: 'Only verified patient accounts can submit feedback for doctors.',
+        });
+        return;
+      }
+
+      const doctorId = sanitizeString(req.params.id, 80);
+      const doctor = await findDoctorById(doctorId);
+      if (!doctor) {
+        res.status(404).json({ error: 'Doctor profile not found.' });
+        return;
+      }
+
+      const requestedAptId = sanitizeString(req.body.appointmentId, 80);
+      const userAppointments = await listAppointmentsForUser(user);
+      const eligibleAppointments = userAppointments.filter(
+        (a) => a.doctorId === doctor.id && a.status !== 'cancelled'
+      );
+
+      const verifiedAppointment = requestedAptId
+        ? eligibleAppointments.find((a) => a.id === requestedAptId)
+        : eligibleAppointments[0];
+
+      if (!verifiedAppointment) {
+        res.status(403).json({
+          error:
+            'Verified visit required: you can only leave feedback after booking or completing an appointment with this doctor.',
+        });
+        return;
+      }
+
+      const parseScore = (val: unknown): number | null => {
+        const n = Number(val);
+        if (!Number.isInteger(n) || n < 1 || n > 5) return null;
+        return n;
+      };
+
+      const overallRating = parseScore(req.body.overallRating);
+      const communicationRating = parseScore(req.body.communicationRating);
+      const empathyRating = parseScore(req.body.empathyRating);
+      const waitTimeRating = parseScore(req.body.waitTimeRating);
+
+      if (
+        overallRating === null ||
+        communicationRating === null ||
+        empathyRating === null ||
+        waitTimeRating === null
+      ) {
+        res.status(400).json({
+          error:
+            'Please provide ratings from 1 to 5 for overall experience, explanation clarity, listening, and wait time accuracy.',
+        });
+        return;
+      }
+
+      const allowedHighlights = new Set([
+        'clear_explanation',
+        'respectful_listening',
+        'accurate_wait',
+        'transparent_fees',
+        'bilingual_care',
+      ]);
+      const rawHighlights = Array.isArray(req.body.highlights) ? req.body.highlights : [];
+      const highlights: string[] = Array.from(
+        new Set<string>(
+          rawHighlights.filter(
+            (h: unknown): h is string => typeof h === 'string' && allowedHighlights.has(h)
+          )
+        )
+      ).slice(0, 5);
+
+      const comment = sanitizeString(req.body.comment, 600);
+      if (!comment && highlights.length === 0) {
+        res.status(400).json({
+          error: 'Please add a short written comment or select at least one structured highlight.',
+        });
+        return;
+      }
+
+      const nameParts = user.name.trim().split(/\s+/).filter(Boolean);
+      const patientDisplayName =
+        nameParts.length > 1
+          ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.`
+          : nameParts[0] || 'Verified Patient';
+
+      const review: DoctorReview = await upsertDoctorReview({
+        id: `rev-${crypto.randomUUID().slice(0, 8)}`,
+        doctorId: doctor.id,
+        patientId: user.id,
+        appointmentId: verifiedAppointment.id,
+        patientDisplayName,
+        visitDate: verifiedAppointment.date,
+        overallRating,
+        communicationRating,
+        empathyRating,
+        waitTimeRating,
+        highlights,
+        comment,
+        createdAt: new Date().toISOString(),
+      });
+
+      const updatedDoctor = await findDoctorById(doctor.id);
+      res.status(201).json({
+        review,
+        doctor: updatedDoctor,
+        summary: updatedDoctor?.ratingSummary || computeRatingSummary([review]),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to submit doctor feedback.';
       res.status(500).json({ error: message });
     }
   });

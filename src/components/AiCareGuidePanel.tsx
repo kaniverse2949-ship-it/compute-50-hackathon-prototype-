@@ -11,9 +11,11 @@ import {
   MessageCircle,
   Mic,
   PhoneCall,
+  RefreshCw,
   Send,
   ShieldAlert,
   Sparkles,
+  Stethoscope,
   Upload,
   X,
 } from 'lucide-react';
@@ -34,9 +36,11 @@ export type GuideTab = 'match' | 'chat' | 'voice' | 'maps';
 interface AiCareGuidePanelProps {
   token: string;
   language: Language;
+  onChangeLanguage?: (lang: Language) => void;
   calm?: boolean;
   initialTab?: GuideTab;
   onSelectDoctor: (doctor: DoctorProfile, openBooking?: boolean) => void;
+  onAiInteraction?: () => void;
   onClose?: () => void;
 }
 
@@ -58,21 +62,51 @@ const SYMPTOM_CHIPS_TA = [
   'சோர்வு / சர்க்கரை பரிசோதனை',
 ];
 
+const SUGGESTED_QUESTIONS_EN = [
+  'Which specialist should I consult for recurring knee pain when climbing stairs?',
+  'How should I prepare before visiting a cardiologist or for a BP checkup?',
+  'What is the difference between Verified Credentials and Pending Review?',
+  'What warning signs mean I should call 108 instead of booking a clinic slot?',
+];
+
+const SUGGESTED_QUESTIONS_TA = [
+  'படிக்கட்டு ஏறும்போது முழங்கால் வலி ஏற்பட்டால் எந்த மருத்துவரைப் பார்க்க வேண்டும்?',
+  'இதய மருத்துவரைச் சந்திக்கும் முன் நான் என்னென்ன தகவல்கள் கொண்டு வர வேண்டும்?',
+  'சான்றளிக்கப்பட்ட தகுதிகள் மற்றும் சரிபார்ப்பு நிலுவையில் என்பதன் வேறுபாடு என்ன?',
+  'எந்த அவசர அறிகுறிகளுக்கு உடனே 108 அழைக்க வேண்டும்?',
+];
+
 export function AiCareGuidePanel({
   token,
   language,
+  onChangeLanguage,
   calm = false,
   initialTab = 'match',
   onSelectDoctor,
+  onAiInteraction,
   onClose,
 }: AiCareGuidePanelProps) {
-  const t = getCopy(language);
+  // Local companion language defaults to global preference and supports quick EN / தமிழ் switching
+  const [companionLang, setCompanionLang] = useState<Language>(language);
+  useEffect(() => {
+    setCompanionLang(language);
+  }, [language]);
+
+  const activeLang = companionLang;
+  const isTa = activeLang === 'ta';
+  const t = getCopy(activeLang);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<GuideTab>(initialTab);
 
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const switchCompanionLanguage = (next: Language) => {
+    setCompanionLang(next);
+    onChangeLanguage?.(next);
+  };
 
   // Smart Match state
   const [concern, setConcern] = useState('');
@@ -92,24 +126,25 @@ export function AiCareGuidePanel({
   const [result, setResult] = useState<AiMatchResponse | null>(null);
 
   // Multi-turn Care Chat state
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => [
     {
       role: 'model',
       text:
         language === 'ta'
-          ? 'வணக்கம்! உங்கள் அறிகுறிகள், சரியான மருத்துவப் பிரிவு அல்லது மருத்துவமனை சந்திப்புக்கு எப்படித் தயாராவது என்பது பற்றி என்னிடம் கேட்கலாம்.'
-          : 'Hello! Ask me any health navigation question—such as which specialist fits your symptoms, what to bring to a visit, or how consultation fees work.',
+          ? 'வணக்கம்! உங்கள் அறிகுறிகள், சரியான மருத்துவப் பிரிவு அல்லது மருத்துவமனை சந்திப்புக்கு எப்படித் தயாராவது என்பது பற்றி எளிய தமிழில் கேட்கலாம். நான் மருத்துவர் அல்ல — தகவல் வழிகாட்டி மட்டுமே.'
+          : 'Hello! I am your bilingual First Cure Health Companion. Ask about general wellness, which medical specialist fits your needs, or how to prepare for a clinic visit. Remember, I provide informational guidance only — never diagnoses or prescriptions.',
       timestamp: new Date().toISOString(),
     },
   ]);
   const [chatInput, setChatInput] = useState('');
   const [chatSpeed, setChatSpeed] = useState<'balanced' | 'fast'>('balanced');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<{ text: string; failedPrompt: string } | null>(null);
   const [chatEmergency, setChatEmergency] = useState<string | null>(null);
 
   // Nearby Care (Maps Grounding) state
   const [mapsQuery, setMapsQuery] = useState(
-    language === 'ta'
+    isTa
       ? 'அருகிலுள்ள 24 மணி நேர மருந்தகம் மற்றும் மருத்துவமனைகள்'
       : '24-hour pharmacy and diagnostic blood test labs nearby'
   );
@@ -117,7 +152,8 @@ export function AiCareGuidePanel({
   const [mapsResult, setMapsResult] = useState<MapsGroundedResponse | null>(null);
   const [mapsError, setMapsError] = useState<string | null>(null);
 
-  const chips = language === 'ta' ? SYMPTOM_CHIPS_TA : SYMPTOM_CHIPS_EN;
+  const chips = isTa ? SYMPTOM_CHIPS_TA : SYMPTOM_CHIPS_EN;
+  const suggestedQuestions = isTa ? SUGGESTED_QUESTIONS_TA : SUGGESTED_QUESTIONS_EN;
 
   const toggleSymptom = (chip: string) => {
     setSelectedSymptoms((prev) =>
@@ -128,26 +164,26 @@ export function AiCareGuidePanel({
   const handleUseGps = () => {
     if (!navigator.geolocation) {
       setGpsStatus(
-        language === 'ta'
+        isTa
           ? 'உங்கள் உலாவியில் GPS வசதி இல்லை.'
           : 'Geolocation is not supported in this browser.'
       );
       return;
     }
-    setGpsStatus(language === 'ta' ? 'இருப்பிடம் பெறப்படுகிறது...' : 'Requesting location...');
+    setGpsStatus(isTa ? 'இருப்பிடம் பெறப்படுகிறது...' : 'Requesting location...');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setLocation((prev) => (prev.trim() ? prev : 'Current GPS Location'));
         setGpsStatus(
-          language === 'ta'
+          isTa
             ? 'GPS இருப்பிடம் இணைக்கப்பட்டது'
             : 'GPS location attached with your permission'
         );
       },
       () => {
         setGpsStatus(
-          language === 'ta'
+          isTa
             ? 'GPS அனுமதி மறுக்கப்பட்டது — நகரப் பெயரை உள்ளிடவும்.'
             : 'Location permission declined — using your typed city/area.'
         );
@@ -161,7 +197,7 @@ export function AiCareGuidePanel({
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) {
       setError(
-        language === 'ta'
+        isTa
           ? 'கோப்பு அளவு 4MB-க்கு குறைவாக இருக்க வேண்டும்.'
           : 'Please choose a file smaller than 4 MB.'
       );
@@ -186,7 +222,7 @@ export function AiCareGuidePanel({
     const numericBudget = Number(budget);
     if (!concern.trim() || !Number.isFinite(numericBudget) || numericBudget <= 0 || !location.trim()) {
       setError(
-        language === 'ta'
+        isTa
           ? 'உடல்நலக் கவலை, கட்டண வரம்பு மற்றும் இடம் ஆகிய மூன்றையும் உள்ளிடவும்.'
           : 'Please fill in your health concern, consultation budget, and current location.'
       );
@@ -201,11 +237,12 @@ export function AiCareGuidePanel({
         location: location.trim(),
         symptoms: selectedSymptoms.join(', '),
         preferredTravelArea: preferredTravelArea.trim() || undefined,
-        language,
+        language: activeLang,
         coordinates: coords,
         attachment: attachment || undefined,
       });
       setResult(data);
+      onAiInteraction?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to run AI Care Guide right now.');
     } finally {
@@ -213,20 +250,22 @@ export function AiCareGuidePanel({
     }
   };
 
-  const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = chatInput.trim();
+  const sendChatText = async (rawText: string, skipAppendUser = false) => {
+    const text = rawText.trim();
     if (!text || chatLoading) return;
-    const userMsg: ChatMessage = { role: 'user', text, timestamp: new Date().toISOString() };
-    const nextHistory = [...chatHistory, userMsg];
-    setChatHistory(nextHistory);
-    setChatInput('');
+    setChatError(null);
+    const historySnapshot = chatHistory;
+    if (!skipAppendUser) {
+      const userMsg: ChatMessage = { role: 'user', text, timestamp: new Date().toISOString() };
+      setChatHistory((prev) => [...prev, userMsg]);
+      setChatInput('');
+    }
     setChatLoading(true);
     try {
       const res = await api.aiChat(token, {
-        history: chatHistory,
+        history: historySnapshot,
         message: text,
-        language,
+        language: activeLang,
         speedMode: chatSpeed,
       });
       setChatHistory((prev) => [
@@ -236,18 +275,25 @@ export function AiCareGuidePanel({
       if (res.isEmergency && res.emergencyMessage) {
         setChatEmergency(res.emergencyMessage);
       }
+      onAiInteraction?.();
     } catch (err) {
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          text: err instanceof Error ? err.message : 'Unable to reply right now.',
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      setChatError({
+        text:
+          err instanceof Error
+            ? err.message
+            : isTa
+            ? 'AI உதவியாளரை இப்போது தொடர்பு கொள்ள முடியவில்லை. மீண்டும் முயற்சிக்கவும்.'
+            : 'Unable to reach AI Health Companion right now. Please retry.',
+        failedPrompt: text,
+      });
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleSendChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendChatText(chatInput);
   };
 
   const handleSearchNearby = async (e: React.FormEvent) => {
@@ -259,10 +305,11 @@ export function AiCareGuidePanel({
       const res = await api.nearbyCare(token, {
         query: mapsQuery.trim(),
         location: location.trim() || 'Chennai',
-        language,
+        language: activeLang,
         coordinates: coords,
       });
       setMapsResult(res);
+      onAiInteraction?.();
     } catch (err) {
       setMapsError(err instanceof Error ? err.message : 'Unable to fetch Google Maps places.');
     } finally {
@@ -272,43 +319,78 @@ export function AiCareGuidePanel({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-white">
+      {/* Header with Bilingual EN / தமிழ் Switcher */}
+      <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-teal-50/70 via-white to-sky-50/70">
         <div className="flex items-center gap-2.5">
           <motion.div
             animate={calm ? undefined : { rotate: [0, 8, -8, 0] }}
             transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-            className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-sm"
+            className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-700 to-sky-700 text-white flex items-center justify-center shadow-sm"
           >
             <Sparkles className="w-4 h-4" />
           </motion.div>
           <div>
             <h2 className="font-display text-base font-bold text-slate-900">{t.aiDrawerTitle}</h2>
-            <p className="text-[11px] text-slate-500">
-              {language === 'ta' ? 'தமிழ் & ஆங்கில வழிகாட்டி' : 'Match · Chat · Live Voice · Maps'}
+            <p className="text-[11px] text-slate-600">
+              {isTa ? 'இருமொழி தகவல் வழிகாட்டி · நோயறிதல் அல்ல' : 'Bilingual Companion · Match · Chat · Voice · Maps'}
             </p>
           </div>
         </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close AI Care Guide"
-            className="min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"
+
+        <div className="flex items-center gap-2">
+          {/* Interactive Bilingual Companion Switcher (Feature 1) */}
+          <div
+            role="group"
+            aria-label="AI Companion Language"
+            className="flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200"
           >
-            <X className="w-5 h-5" />
-          </button>
-        )}
+            <button
+              type="button"
+              onClick={() => switchCompanionLanguage('en')}
+              aria-pressed={activeLang === 'en'}
+              className={`min-h-[32px] px-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeLang === 'en'
+                  ? 'bg-teal-700 text-white shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900'
+              }`}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              onClick={() => switchCompanionLanguage('ta')}
+              aria-pressed={activeLang === 'ta'}
+              className={`min-h-[32px] px-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeLang === 'ta'
+                  ? 'bg-sky-700 text-white shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900'
+              }`}
+            >
+              தமிழ்
+            </button>
+          </div>
+
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close AI Care Guide"
+              className="min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Mode Switcher */}
-      <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50/60 flex items-center gap-1.5 overflow-x-auto">
+      <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center gap-1.5 overflow-x-auto">
         {(
           [
-            { id: 'match', label: language === 'ta' ? 'மருத்துவர் பொருத்தம்' : 'Doctor Match', icon: <Sparkles className="w-3.5 h-3.5" /> },
-            { id: 'chat', label: language === 'ta' ? 'உரையாடல்' : 'Care Chat', icon: <MessageCircle className="w-3.5 h-3.5" /> },
-            { id: 'voice', label: language === 'ta' ? 'Gemini குரல்' : 'Gemini Voice', icon: <Mic className="w-3.5 h-3.5" /> },
-            { id: 'maps', label: language === 'ta' ? 'அருகிலுள்ள சேவை' : 'Nearby Maps', icon: <MapPin className="w-3.5 h-3.5" /> },
+            { id: 'match', label: isTa ? 'மருத்துவர் பொருத்தம்' : 'Doctor Match', icon: <Sparkles className="w-3.5 h-3.5" /> },
+            { id: 'chat', label: isTa ? 'உரையாடல்' : 'Care Chat', icon: <MessageCircle className="w-3.5 h-3.5" /> },
+            { id: 'voice', label: isTa ? 'Gemini குரல்' : 'Gemini Voice', icon: <Mic className="w-3.5 h-3.5" /> },
+            { id: 'maps', label: isTa ? 'அருகிலுள்ள சேவை' : 'Nearby Maps', icon: <MapPin className="w-3.5 h-3.5" /> },
           ] as const
         ).map((item) => {
           const active = activeTab === item.id;
@@ -317,7 +399,7 @@ export function AiCareGuidePanel({
               key={item.id}
               type="button"
               onClick={() => setActiveTab(item.id)}
-              className={`min-h-[36px] px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              className={`min-h-[38px] px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                 active ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:border-teal-500'
               }`}
             >
@@ -329,10 +411,29 @@ export function AiCareGuidePanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
-        {/* Mandatory Non-Diagnostic Disclaimer */}
-        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed">
-          <ShieldAlert className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
-          <span>{t.aiDisclaimer}</span>
+        {/* Mandatory Non-Diagnostic & Seek Professional Advice Banner + Voice Quick-Switch */}
+        <div className="p-3.5 rounded-2xl bg-sky-50/75 border border-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-700 leading-relaxed">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-slate-900">{t.aiDisclaimer}</p>
+              <p className="text-[11px] text-slate-600">
+                {isTa
+                  ? 'மருந்து பரிந்துரைக்காது. அறிகுறிகள் அதிகரித்தாலோ, காய்ச்சல் 3 நாட்களுக்கு மேல் நீடித்தாலோ தகுதிவாய்ந்த மருத்துவரை நேரில் அணுகவும்; அவசரத்திற்கு 108 / 112 அழைக்கவும்.'
+                  : 'Never diagnoses diseases or prescribes medications. Consult a licensed clinician for symptoms lasting over 48–72 hours, and call 108 / 112 immediately for emergencies.'}
+              </p>
+            </div>
+          </div>
+          {activeTab !== 'voice' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('voice')}
+              className="min-h-[36px] px-3 rounded-xl bg-white border border-sky-300 text-sky-800 hover:bg-sky-100/70 text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <Mic className="w-3.5 h-3.5 text-teal-700" />
+              <span>{isTa ? 'குரல் மூலம் பேச' : 'Speak with Gemini'}</span>
+            </button>
+          )}
         </div>
 
         <AnimatePresence mode="wait">
@@ -424,9 +525,9 @@ export function AiCareGuidePanel({
                           type="button"
                           whileTap={{ scale: 0.94 }}
                           onClick={() => toggleSymptom(chip)}
-                          className={`min-h-[34px] px-3 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+                          className={`min-h-[36px] px-3 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
                             active
-                              ? 'bg-teal-600 text-white border-teal-600'
+                              ? 'bg-teal-700 text-white border-teal-700'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-teal-400'
                           }`}
                         >
@@ -445,7 +546,7 @@ export function AiCareGuidePanel({
                     <input
                       value={preferredTravelArea}
                       onChange={(e) => setPreferredTravelArea(e.target.value)}
-                      placeholder={language === 'ta' ? 'எ.கா., 5 கி.மீ உள்ளே' : 'e.g. Within 8 km / T. Nagar'}
+                      placeholder={isTa ? 'எ.கா., 5 கி.மீ உள்ளே' : 'e.g. Within 8 km / T. Nagar'}
                       className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-600"
                     />
                   </div>
@@ -471,7 +572,7 @@ export function AiCareGuidePanel({
                         <span className="truncate">
                           {attachment
                             ? attachment.fileName
-                            : language === 'ta'
+                            : isTa
                             ? 'படம் / அறிக்கை தேர்வு செய்க'
                             : 'Attach photo or PDF report'}
                         </span>
@@ -546,7 +647,7 @@ export function AiCareGuidePanel({
                   <div className="space-y-3">
                     {result.matches.map((match, idx) => {
                       const d = match.doctor;
-                      const docName = language === 'ta' ? d.nameTa : d.name;
+                      const docName = isTa ? d.nameTa : d.name;
                       return (
                         <motion.div
                           key={d.id}
@@ -573,7 +674,7 @@ export function AiCareGuidePanel({
                                   )}
                                 </div>
                                 <p className="text-xs text-slate-500 truncate">
-                                  {(language === 'ta' ? d.specialtiesTa : d.specialties)[0]} · {d.area},{' '}
+                                  {(isTa ? d.specialtiesTa : d.specialties)[0]} · {d.area},{' '}
                                   {d.city}
                                 </p>
                               </div>
@@ -586,10 +687,10 @@ export function AiCareGuidePanel({
                               <p className="text-[11px] text-slate-500 font-mono-num">
                                 {match.distanceKm} km ·{' '}
                                 {match.withinBudget
-                                  ? language === 'ta'
+                                  ? isTa
                                     ? 'பட்ஜெட் உள்ளே'
                                     : 'In budget'
-                                  : language === 'ta'
+                                  : isTa
                                   ? 'பட்ஜெட் மேல்'
                                   : 'Above budget'}
                               </p>
@@ -610,7 +711,7 @@ export function AiCareGuidePanel({
 
                           <div className="flex items-center justify-between gap-3 pt-1">
                             <span className="text-xs text-slate-500 font-mono-num">
-                              {language === 'ta' ? 'அடுத்த நேரம்: ' : 'Next slot: '}
+                              {isTa ? 'அடுத்த நேரம்: ' : 'Next slot: '}
                               {match.nextAvailableSlot}
                             </span>
                             <SpringButton size="sm" onClick={() => onSelectDoctor(d, true)}>
@@ -635,28 +736,49 @@ export function AiCareGuidePanel({
               className="space-y-4"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-600">
-                  {language === 'ta' ? 'உதவி வேகம்' : 'Response Mode'}
+                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                  <Stethoscope className="w-3.5 h-3.5 text-teal-700" />
+                  {isTa ? 'பதில் வேகம் & எளிய விளக்கம்' : 'Response Mode'}
                 </span>
                 <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setChatSpeed('balanced')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                    className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
                       chatSpeed === 'balanced' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
                     }`}
                   >
-                    {language === 'ta' ? 'விரிவான பதில்' : 'Balanced'}
+                    {isTa ? 'விரிவான பதில்' : 'Balanced'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setChatSpeed('fast')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                    className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
                       chatSpeed === 'fast' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
                     }`}
                   >
-                    {language === 'ta' ? 'விரைவு பதில்' : 'Fast'}
+                    {isTa ? 'விரைவு பதில்' : 'Fast'}
                   </button>
+                </div>
+              </div>
+
+              {/* Suggested Quick Question Buttons (Feature 1) */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  {isTa ? 'பரிந்துரைக்கப்பட்ட கேள்விகள் (தட்டவும்):' : 'Suggested questions (tap to ask):'}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {suggestedQuestions.map((qText) => (
+                    <button
+                      key={qText}
+                      type="button"
+                      disabled={chatLoading}
+                      onClick={() => void sendChatText(qText)}
+                      className="text-left p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-sky-50/70 hover:border-sky-300 text-xs text-slate-700 font-medium leading-snug transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {qText}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -669,15 +791,15 @@ export function AiCareGuidePanel({
                 </div>
               )}
 
-              <div className="space-y-2.5 max-h-[340px] overflow-y-auto p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              <div className="space-y-2.5 max-h-[320px] overflow-y-auto p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
                 {chatHistory.map((m, idx) => (
                   <motion.div
                     key={idx}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`p-3 rounded-2xl text-xs leading-relaxed ${
+                    className={`p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-line ${
                       m.role === 'user'
-                        ? 'bg-slate-900 text-white ml-8'
+                        ? 'bg-gradient-to-br from-teal-700 to-sky-700 text-white ml-8'
                         : 'bg-white border border-slate-200 text-slate-800 mr-8'
                     }`}
                   >
@@ -685,24 +807,43 @@ export function AiCareGuidePanel({
                   </motion.div>
                 ))}
                 {chatLoading && (
-                  <div className="p-3 rounded-2xl bg-white border border-slate-200 mr-12 text-xs text-slate-500 animate-pulse">
-                    {language === 'ta' ? 'பதில் தயாராகிறது...' : 'Thinking...'}
+                  <div className="p-3 rounded-2xl bg-white border border-slate-200 mr-12 text-xs text-slate-600 flex items-center gap-2">
+                    <span className="inline-flex gap-1" aria-hidden="true">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-bounce" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-600 animate-bounce [animation-delay:0.15s]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-bounce [animation-delay:0.3s]" />
+                    </span>
+                    <span>{isTa ? 'தகவல் தயாராகிறது...' : 'Generating plain-language guidance...'}</span>
                   </div>
                 )}
               </div>
+
+              {chatError && (
+                <div className="p-3 rounded-2xl bg-orange-50 border border-orange-200 flex items-center justify-between gap-3 text-xs text-orange-800">
+                  <span>{chatError.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => void sendChatText(chatError.failedPrompt, true)}
+                    className="min-h-[34px] px-3 rounded-lg bg-white border border-orange-300 text-orange-800 font-semibold inline-flex items-center gap-1.5 hover:bg-orange-100 cursor-pointer shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    {isTa ? 'மீண்டும் முயற்சி' : 'Retry'}
+                  </button>
+                </div>
+              )}
 
               <form onSubmit={handleSendChat} className="flex gap-2">
                 <input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder={
-                    language === 'ta'
-                      ? 'உங்கள் கேள்வியை இங்கே தட்டச்சு செய்யவும்...'
-                      : 'Ask about specialists, preparation, or reports...'
+                    isTa
+                      ? 'உங்கள் கேள்வியை தமிழ் அல்லது ஆங்கிலத்தில் தட்டச்சு செய்யவும்...'
+                      : 'Ask in English or Tamil about specialists, visit prep, or reports...'
                   }
                   className="flex-1 min-h-[44px] px-3.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-600"
                 />
-                <SpringButton type="submit" disabled={chatLoading || !chatInput.trim()}>
+                <SpringButton type="submit" disabled={chatLoading || !chatInput.trim()} aria-label="Send message">
                   <Send className="w-4 h-4" />
                 </SpringButton>
               </form>
@@ -716,7 +857,7 @@ export function AiCareGuidePanel({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
             >
-              <LiveVoiceAssistant token={token} language={language} calm={calm} />
+              <LiveVoiceAssistant token={token} language={activeLang} calm={calm} />
             </motion.div>
           )}
 
@@ -749,7 +890,7 @@ export function AiCareGuidePanel({
                   value={mapsQuery}
                   onChange={(e) => setMapsQuery(e.target.value)}
                   placeholder={
-                    language === 'ta'
+                    isTa
                       ? 'மருந்தகம், இரத்த பரிசோதனை மையம், மருத்துவமனை...'
                       : 'Search nearby pharmacies, labs, urgent clinics...'
                   }
@@ -758,10 +899,10 @@ export function AiCareGuidePanel({
                 <SpringButton type="submit" disabled={mapsLoading} className="w-full">
                   <MapPin className="w-4 h-4" />
                   {mapsLoading
-                    ? language === 'ta'
+                    ? isTa
                       ? 'Google Maps தேடுகிறது...'
                       : 'Searching Google Maps...'
-                    : language === 'ta'
+                    : isTa
                     ? 'Google Maps வழியாக தேடு'
                     : 'Find Nearby Care via Google Maps'}
                 </SpringButton>
@@ -781,7 +922,7 @@ export function AiCareGuidePanel({
                   {mapsResult.places.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-bold text-slate-800">
-                        {language === 'ta' ? 'Google Maps இணைப்புகள்' : 'Verified Google Maps Links'}
+                        {isTa ? 'Google Maps இணைப்புகள்' : 'Verified Google Maps Links'}
                       </p>
                       {mapsResult.places.map((p, idx) => (
                         <a

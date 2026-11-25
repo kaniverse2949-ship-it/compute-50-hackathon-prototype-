@@ -4,6 +4,8 @@ import type {
   ChatMessage,
   ChatResponse,
   DoctorProfile,
+  DoctorRatingSummary,
+  DoctorReview,
   Language,
   MapsGroundedResponse,
   PatientHealthRecord,
@@ -120,6 +122,36 @@ export const api = {
     if (params?.maxFee) sp.set('maxFee', String(params.maxFee));
     const qs = sp.toString();
     return requestJson<{ doctors: DoctorProfile[] }>(`/api/doctors${qs ? `?${qs}` : ''}`);
+  },
+
+  getDoctorReviews(doctorId: string) {
+    return requestJson<{ reviews: DoctorReview[]; summary: DoctorRatingSummary }>(
+      `/api/doctors/${encodeURIComponent(doctorId)}/reviews`
+    );
+  },
+
+  submitDoctorReview(
+    token: string,
+    doctorId: string,
+    payload: {
+      appointmentId: string;
+      overallRating: number;
+      communicationRating: number;
+      empathyRating: number;
+      waitTimeRating: number;
+      highlights: string[];
+      comment: string;
+    }
+  ) {
+    return requestJson<{
+      review: DoctorReview;
+      doctor: DoctorProfile;
+      summary: DoctorRatingSummary;
+    }>(
+      `/api/doctors/${encodeURIComponent(doctorId)}/reviews`,
+      { method: 'POST', body: JSON.stringify(payload) },
+      token
+    );
   },
 
   aiMatch(

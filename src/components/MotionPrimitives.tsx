@@ -122,12 +122,12 @@ export function ParallaxTiltCard({
 
 export function AnimatedCareIllustration({ calm }: { calm: boolean }) {
   return (
-    <div className="relative w-full h-24 rounded-2xl bg-gradient-to-r from-teal-50 via-cyan-50/70 to-emerald-50 border border-teal-200/70 overflow-hidden flex items-center px-5 justify-between">
+    <div className="relative w-full h-24 rounded-2xl bg-gradient-to-r from-teal-50 via-sky-50/85 to-blue-50/75 border border-teal-200/70 overflow-hidden flex items-center px-5 justify-between">
       <div className="flex items-center gap-3 z-10">
         <motion.div
           animate={calm ? undefined : { scale: [1, 1.12, 1] }}
           transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-          className="w-11 h-11 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-md shadow-teal-600/25"
+          className="w-11 h-11 rounded-2xl bg-gradient-to-br from-teal-700 to-sky-700 text-white flex items-center justify-center shadow-md shadow-teal-700/25"
         >
           <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <path d="M3 12h4l3-7 4 14 3-7h4" strokeLinecap="round" strokeLinejoin="round" />
@@ -198,13 +198,13 @@ export function AnimatedBackdrop({ calm }: { calm: boolean }) {
         }`}
       />
       <div
-        className={`absolute top-1/3 -left-32 w-[460px] h-[460px] rounded-full bg-cyan-200/45 blur-3xl ${
+        className={`absolute top-1/3 -left-32 w-[460px] h-[460px] rounded-full bg-sky-200/45 blur-3xl ${
           calm ? '' : 'fc-ambient-orb'
         }`}
         style={{ animationDelay: '-5s' }}
       />
       <div
-        className={`absolute -bottom-32 right-1/4 w-[400px] h-[400px] rounded-full bg-amber-100/45 blur-3xl ${
+        className={`absolute -bottom-32 right-1/4 w-[400px] h-[400px] rounded-full bg-blue-100/50 blur-3xl ${
           calm ? '' : 'fc-ambient-orb'
         }`}
         style={{ animationDelay: '-9s' }}

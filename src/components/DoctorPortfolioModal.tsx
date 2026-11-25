@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  Activity,
   Award,
   BadgeCheck,
   Calendar,
@@ -11,6 +12,7 @@ import {
   Pause,
   Play,
   ShieldCheck,
+  Star,
   Stethoscope,
   UserCheck,
   Video,
@@ -26,6 +28,7 @@ import type {
 } from '../types';
 import { ClinicGoogleMap } from './ClinicGoogleMap';
 import { SpringButton, SuccessCelebration } from './MotionPrimitives';
+import { VerifiedFeedbackSection } from './VerifiedFeedbackSection';
 
 interface DoctorPortfolioModalProps {
   doctor: DoctorProfile;
@@ -33,9 +36,12 @@ interface DoctorPortfolioModalProps {
   token: string;
   isPatient: boolean;
   records: PatientHealthRecord[];
-  initialStep?: 'portfolio' | 'book';
+  patientAppointments?: Appointment[];
+  initialStep?: 'portfolio' | 'book' | 'feedback';
+  initialFeedbackAppointmentId?: string;
   onClose: () => void;
   onBooked: (appointment: Appointment) => void;
+  onDoctorUpdated?: (doctor: DoctorProfile) => void;
 }
 
 export function DoctorPortfolioModal({
@@ -44,17 +50,70 @@ export function DoctorPortfolioModal({
   token,
   isPatient,
   records,
+  patientAppointments = [],
   initialStep = 'portfolio',
+  initialFeedbackAppointmentId,
   onClose,
   onBooked,
+  onDoctorUpdated,
 }: DoctorPortfolioModalProps) {
   const t = getCopy(language);
-  const [view, setView] = useState<'portfolio' | 'book' | 'confirmed'>(initialStep);
+  const [view, setView] = useState<'portfolio' | 'book' | 'confirmed'>(
+    initialStep === 'book' ? 'book' : 'portfolio'
+  );
   const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    if (initialStep === 'feedback') {
+      const timer = setTimeout(() => {
+        document.getElementById('verified-feedback-section')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 220);
+      return () => clearTimeout(timer);
+    }
+  }, [initialStep]);
 
   // Intro video simulated player state
   const [playingIntro, setPlayingIntro] = useState(false);
   const [introProgress, setIntroProgress] = useState(0);
+
+  // Condition Fit & Estimated Recovery Outlook state
+  const [problemInput, setProblemInput] = useState<string>(
+    language === 'ta'
+      ? doctor.specialtiesTa[0] || doctor.specialties[0] || ''
+      : doctor.specialties[0] || ''
+  );
+
+  // Compute transparent, non-guaranteed recovery / care-fit outlook percentage from verified metadata
+  const recoveryOutlook = (() => {
+    const query = problemInput.trim().toLowerCase();
+    const specMatch =
+      !query ||
+      doctor.specialties.some((s) => s.toLowerCase().includes(query) || query.includes(s.toLowerCase())) ||
+      doctor.specialtiesTa.some((s) => s.toLowerCase().includes(query) || query.includes(s.toLowerCase())) ||
+      doctor.bio.toLowerCase().includes(query) ||
+      doctor.caseStudies.some(
+        (c) =>
+          c.title.toLowerCase().includes(query) ||
+          c.summary.toLowerCase().includes(query) ||
+          c.specialty.toLowerCase().includes(query)
+      );
+
+    const caseBoost = doctor.caseStudies.some((c) => c.status === 'verified') ? 4 : 0;
+    const expBoost = Math.min(8, Math.round(doctor.yearsExperience / 2.5));
+    const volumeBoost = doctor.auditedPatientVolume ? 4 : 0;
+    const base = doctor.verificationStatus === 'verified' ? 76 : 68;
+    const matchBonus = specMatch ? 4 : -6;
+    const pct = Math.max(62, Math.min(94, base + expBoost + caseBoost + volumeBoost + matchBonus));
+
+    return {
+      percent: pct,
+      specMatch,
+      isAudited: doctor.verificationStatus === 'verified' && Boolean(doctor.auditedPatientVolume),
+    };
+  })();
 
   // Booking state
   const [selectedDate, setSelectedDate] = useState(doctor.availableSlots[0]?.date || '');
@@ -240,6 +299,15 @@ export function DoctorPortfolioModal({
                         ? t.verifiedDoctor
                         : t.pendingVerification}
                     </p>
+                    {doctor.ratingSummary && doctor.ratingSummary.totalReviews > 0 && (
+                      <p className="text-xs font-mono-num font-bold text-slate-900 mt-1 flex items-center gap-1">
+                        <Star className="w-3.5 h-3.5 text-amber-500" fill="currentColor" />
+                        <span>{doctor.ratingSummary.averageOverall.toFixed(1)}</span>
+                        <span className="text-slate-500 font-normal">
+                          ({doctor.ratingSummary.totalReviews})
+                        </span>
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -315,6 +383,86 @@ export function DoctorPortfolioModal({
                     </span>
                   </div>
                 )}
+
+                {/* Estimated Cure / Recovery Outlook & Condition Fit */}
+                <div className="p-4 sm:p-5 rounded-2xl border border-sky-200 bg-gradient-to-br from-teal-50/60 via-white to-sky-50/70 space-y-3.5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <h3 className="font-display text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        <Activity className="w-4 h-4 text-teal-700" />
+                        {language === 'ta'
+                          ? 'உங்கள் பிரச்சனைக்கான குணமடையும் வாய்ப்பு & பொருத்தம்'
+                          : 'Estimated Recovery & Care-Fit Outlook for Your Problem'}
+                      </h3>
+                      <p className="text-[11px] text-slate-600">
+                        {recoveryOutlook.isAudited
+                          ? language === 'ta'
+                            ? `${doctor.yearsExperience} ஆண்டு அனுபவம் & தணிக்கை செய்யப்பட்ட நோயாளி பதிவுகளின் அடிப்படையில்`
+                            : `Based on ${doctor.yearsExperience} yrs experience & documented specialty follow-ups`
+                          : language === 'ta'
+                          ? 'சிறப்புத் துறை அடிப்படை மதிப்பீடு (தணிக்கை நிலுவையில்)'
+                          : 'Specialty baseline estimate (registry audit pending)'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono-num text-2xl font-bold text-teal-800">
+                        {recoveryOutlook.percent}%
+                      </span>
+                      <p className="text-[10px] font-semibold text-sky-800">
+                        {language === 'ta' ? 'மதிப்பிடப்பட்ட வாய்ப்பு' : 'Estimated Outlook'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="w-full h-2.5 bg-slate-200/80 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${recoveryOutlook.percent}%` }}
+                      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+                      className="h-full rounded-full bg-gradient-to-r from-teal-600 to-sky-600"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-700">
+                      {language === 'ta'
+                        ? 'உங்கள் உடல்நலப் பிரச்சனையைத் தேர்ந்தெடுக்கவும் அல்லது தட்டச்சு செய்யவும்:'
+                        : 'Select focus area or type your problem to check care fit:'}
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(language === 'ta' ? doctor.specialtiesTa : doctor.specialties).map((sp) => (
+                        <button
+                          key={sp}
+                          type="button"
+                          onClick={() => setProblemInput(sp)}
+                          className={`min-h-[30px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                            problemInput.toLowerCase() === sp.toLowerCase()
+                              ? 'bg-teal-700 text-white border-teal-700'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-teal-500'
+                          }`}
+                        >
+                          {sp}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={problemInput}
+                      onChange={(e) => setProblemInput(e.target.value)}
+                      placeholder={
+                        language === 'ta'
+                          ? 'எ.கா., முழங்கால் வலி, இரத்த அழுத்தம், சர்க்கரை...'
+                          : 'e.g., Knee pain, palpitations, HbA1c follow-up...'
+                      }
+                      className="w-full min-h-[38px] px-3 rounded-xl border border-slate-200 bg-white text-xs focus:outline-none focus:border-teal-600"
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    {language === 'ta'
+                      ? 'குறிப்பு: இது பொதுவான மருத்துவத் தகுதி மற்றும் தொடர் கண்காணிப்புத் தரவுகளின் அடிப்படையிலான மதிப்பீடு மட்டுமே — தனிப்பட்ட உடல்நிலை மற்றும் நேரடிப் பரிசோதனையைப் பொறுத்து குணமடைதல் மாறுபடும்; இது 100% உத்தரவாதம் அல்ல.'
+                      : 'Informational estimate only: Actual recovery depends on in-person clinical examination, accurate diagnosis, and treatment adherence. No outcome or cure percentage can be guaranteed in advance.'}
+                  </p>
+                </div>
 
                 {/* Introductory Video / Interview */}
                 {doctor.introVideo && (
@@ -437,6 +585,18 @@ export function DoctorPortfolioModal({
                     </div>
                   )}
                 </div>
+
+                {/* Verified Patient Feedback & Structured Ratings */}
+                <VerifiedFeedbackSection
+                  doctor={doctor}
+                  language={language}
+                  token={token}
+                  isPatient={isPatient}
+                  patientAppointments={patientAppointments}
+                  initialAppointmentId={initialFeedbackAppointmentId}
+                  autoOpenForm={initialStep === 'feedback'}
+                  onDoctorUpdated={onDoctorUpdated}
+                />
               </motion.div>
             )}
 
@@ -578,10 +738,17 @@ export function DoctorPortfolioModal({
 
                 {/* Payment Method */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2">
-                    <CreditCard className="w-3.5 h-3.5 inline mr-1.5 text-teal-600" />
-                    {language === 'ta' ? 'கட்டணம் செலுத்தும் முறை' : 'Payment Method'}
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="text-xs font-semibold text-slate-700">
+                      <CreditCard className="w-3.5 h-3.5 inline mr-1.5 text-teal-600" />
+                      {language === 'ta' ? 'கட்டணம் செலுத்தும் முறை' : 'Payment Method'}
+                    </label>
+                    <span className="text-[11px] font-medium text-sky-700">
+                      {language === 'ta'
+                        ? 'மாதிரி முன்பதிவு (உண்மைக் கட்டணம் இல்லை)'
+                        : 'Demo Flow · No real charge'}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(['UPI (GPay / PhonePe)', 'Debit / Credit Card', 'NetBanking'] as const).map(
                       (method) => (

@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from './index.ts';
 import {
   appointments,
+  doctorReviews,
   doctors,
   healthRecords,
   peerDiscussions,
@@ -16,6 +17,8 @@ import type {
   Appointment,
   AvailabilitySlot,
   DoctorProfile,
+  DoctorRatingSummary,
+  DoctorReview,
   Language,
   PatientHealthRecord,
   PeerDiscussion,
@@ -404,6 +407,45 @@ function mapSupervisionRow(row: typeof supervisions.$inferSelect): SupervisionRe
   };
 }
 
+function mapReviewRow(row: typeof doctorReviews.$inferSelect): DoctorReview {
+  return {
+    id: row.id,
+    doctorId: row.doctorId,
+    appointmentId: row.appointmentId,
+    patientDisplayName: row.patientDisplayName,
+    verifiedVisit: row.verifiedVisit,
+    visitDate: row.visitDate,
+    overallRating: row.overallRating,
+    communicationRating: row.communicationRating,
+    empathyRating: row.empathyRating,
+    waitTimeRating: row.waitTimeRating,
+    highlights: row.highlights,
+    comment: row.comment,
+    createdAt: row.createdAt,
+  };
+}
+
+export function computeRatingSummary(reviewsList: DoctorReview[]): DoctorRatingSummary {
+  const totalReviews = reviewsList.length;
+  if (totalReviews === 0) {
+    return {
+      totalReviews: 0,
+      averageOverall: 0,
+      averageCommunication: 0,
+      averageEmpathy: 0,
+      averageWaitTime: 0,
+    };
+  }
+  const round1 = (sum: number) => Math.round((sum / totalReviews) * 10) / 10;
+  return {
+    totalReviews,
+    averageOverall: round1(reviewsList.reduce((acc, r) => acc + r.overallRating, 0)),
+    averageCommunication: round1(reviewsList.reduce((acc, r) => acc + r.communicationRating, 0)),
+    averageEmpathy: round1(reviewsList.reduce((acc, r) => acc + r.empathyRating, 0)),
+    averageWaitTime: round1(reviewsList.reduce((acc, r) => acc + r.waitTimeRating, 0)),
+  };
+}
+
 export async function findUserById(id: string): Promise<StoredUser | null> {
   await ensureSeeded();
   try {
@@ -676,7 +718,18 @@ export async function updateUserPreferences(
 export async function listAllDoctors(): Promise<DoctorProfile[]> {
   await ensureSeeded();
   try {
-    const rows = await db.select().from(doctors);
+    const [rows, reviewRows] = await Promise.all([
+      db.select().from(doctors),
+      db.select().from(doctorReviews).orderBy(desc(doctorReviews.createdAt)),
+    ]);
+    const reviewsByDoc = new Map<string, DoctorReview[]>();
+    for (const r of reviewRows) {
+      const mapped = mapReviewRow(r);
+      const list = reviewsByDoc.get(mapped.doctorId) || [];
+      list.push(mapped);
+      reviewsByDoc.set(mapped.doctorId, list);
+    }
+
     const list: DoctorProfile[] = [];
     for (const row of rows) {
       const doc = mapDoctorRow(row);
@@ -688,6 +741,9 @@ export async function listAllDoctors(): Promise<DoctorProfile[]> {
           .set({ availableSlots: normalized.slots })
           .where(eq(doctors.id, doc.id));
       }
+      const docReviews = reviewsByDoc.get(doc.id) || [];
+      doc.reviews = docReviews;
+      doc.ratingSummary = computeRatingSummary(docReviews);
       list.push(doc);
     }
     return list;
@@ -700,8 +756,20 @@ export async function listAllDoctors(): Promise<DoctorProfile[]> {
 export async function findDoctorById(doctorId: string): Promise<DoctorProfile | null> {
   await ensureSeeded();
   try {
-    const rows = await db.select().from(doctors).where(eq(doctors.id, doctorId)).limit(1);
-    return rows[0] ? mapDoctorRow(rows[0]) : null;
+    const [rows, reviewRows] = await Promise.all([
+      db.select().from(doctors).where(eq(doctors.id, doctorId)).limit(1),
+      db
+        .select()
+        .from(doctorReviews)
+        .where(eq(doctorReviews.doctorId, doctorId))
+        .orderBy(desc(doctorReviews.createdAt)),
+    ]);
+    if (!rows[0]) return null;
+    const doc = mapDoctorRow(rows[0]);
+    const docReviews = reviewRows.map(mapReviewRow);
+    doc.reviews = docReviews;
+    doc.ratingSummary = computeRatingSummary(docReviews);
+    return doc;
   } catch (error) {
     console.error('findDoctorById failed:', error);
     throw new Error('Failed to load doctor profile.', { cause: error });
@@ -716,10 +784,84 @@ export async function updateDoctorById(
   try {
     const rows = await db.update(doctors).set(patch).where(eq(doctors.id, doctorId)).returning();
     if (!rows[0]) throw new Error('Doctor not found');
-    return mapDoctorRow(rows[0]);
+    const doc = mapDoctorRow(rows[0]);
+    const docReviews = await listDoctorReviews(doctorId);
+    doc.reviews = docReviews;
+    doc.ratingSummary = computeRatingSummary(docReviews);
+    return doc;
   } catch (error) {
     console.error('updateDoctorById failed:', error);
     throw new Error('Failed to update doctor profile.', { cause: error });
+  }
+}
+
+export async function listDoctorReviews(doctorId: string): Promise<DoctorReview[]> {
+  await ensureSeeded();
+  try {
+    const rows = await db
+      .select()
+      .from(doctorReviews)
+      .where(eq(doctorReviews.doctorId, doctorId))
+      .orderBy(desc(doctorReviews.createdAt));
+    return rows.map(mapReviewRow);
+  } catch (error) {
+    console.error('listDoctorReviews failed:', error);
+    throw new Error('Failed to load doctor feedback.', { cause: error });
+  }
+}
+
+export async function upsertDoctorReview(params: {
+  id: string;
+  doctorId: string;
+  patientId: string;
+  appointmentId: string;
+  patientDisplayName: string;
+  visitDate: string;
+  overallRating: number;
+  communicationRating: number;
+  empathyRating: number;
+  waitTimeRating: number;
+  highlights: string[];
+  comment: string;
+  createdAt: string;
+}): Promise<DoctorReview> {
+  await ensureSeeded();
+  try {
+    const rows = await db
+      .insert(doctorReviews)
+      .values({
+        id: params.id,
+        doctorId: params.doctorId,
+        patientId: params.patientId,
+        appointmentId: params.appointmentId,
+        patientDisplayName: params.patientDisplayName,
+        verifiedVisit: true,
+        visitDate: params.visitDate,
+        overallRating: params.overallRating,
+        communicationRating: params.communicationRating,
+        empathyRating: params.empathyRating,
+        waitTimeRating: params.waitTimeRating,
+        highlights: params.highlights,
+        comment: params.comment,
+        createdAt: params.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: doctorReviews.appointmentId,
+        set: {
+          overallRating: params.overallRating,
+          communicationRating: params.communicationRating,
+          empathyRating: params.empathyRating,
+          waitTimeRating: params.waitTimeRating,
+          highlights: params.highlights,
+          comment: params.comment,
+          createdAt: params.createdAt,
+        },
+      })
+      .returning();
+    return mapReviewRow(rows[0]);
+  } catch (error) {
+    console.error('upsertDoctorReview failed:', error);
+    throw new Error('Failed to save verified patient feedback.', { cause: error });
   }
 }
 

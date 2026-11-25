@@ -169,15 +169,41 @@ export const supervisions = pgTable('supervisions', {
   createdAt: text('created_at').notNull(),
 });
 
+export const doctorReviews = pgTable('doctor_reviews', {
+  id: text('id').primaryKey(),
+  doctorId: text('doctor_id')
+    .references(() => doctors.id)
+    .notNull(),
+  patientId: text('patient_id')
+    .references(() => users.id)
+    .notNull(),
+  appointmentId: text('appointment_id')
+    .references(() => appointments.id)
+    .notNull()
+    .unique(),
+  patientDisplayName: text('patient_display_name').notNull(),
+  verifiedVisit: boolean('verified_visit').notNull().default(true),
+  visitDate: text('visit_date').notNull(),
+  overallRating: integer('overall_rating').notNull(),
+  communicationRating: integer('communication_rating').notNull(),
+  empathyRating: integer('empathy_rating').notNull(),
+  waitTimeRating: integer('wait_time_rating').notNull(),
+  highlights: jsonb('highlights').$type<string[]>().notNull(),
+  comment: text('comment').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   appointments: many(appointments),
   healthRecords: many(healthRecords),
   referrals: many(referrals),
+  doctorReviews: many(doctorReviews),
 }));
 
 export const doctorsRelations = relations(doctors, ({ many }) => ({
   appointments: many(appointments),
   peerDiscussions: many(peerDiscussions),
+  reviews: many(doctorReviews),
 }));
 
 export const appointmentsRelations = relations(appointments, ({ one }) => ({
@@ -217,5 +243,20 @@ export const referralsRelations = relations(referrals, ({ one }) => ({
   toDoctor: one(doctors, {
     fields: [referrals.toDoctorId],
     references: [doctors.id],
+  }),
+}));
+
+export const doctorReviewsRelations = relations(doctorReviews, ({ one }) => ({
+  doctor: one(doctors, {
+    fields: [doctorReviews.doctorId],
+    references: [doctors.id],
+  }),
+  patient: one(users, {
+    fields: [doctorReviews.patientId],
+    references: [users.id],
+  }),
+  appointment: one(appointments, {
+    fields: [doctorReviews.appointmentId],
+    references: [appointments.id],
   }),
 }));

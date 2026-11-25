@@ -9,12 +9,14 @@ import {
   ShieldCheck,
   Sparkles,
   Stethoscope,
+  Type,
   UserRound,
 } from 'lucide-react';
 import { api } from '../api';
 import { getCopy, LANGUAGE_OPTIONS } from '../i18n';
 import { signInWithGooglePopup } from '../lib/firebase';
 import type { Language, PublicUser, UserRole } from '../types';
+import { AppFooter } from './AppFooter';
 import {
   AnimatedCareIllustration,
   ParallaxTiltCard,
@@ -26,6 +28,8 @@ interface OnboardingFlowProps {
   onSelectLanguage: (lang: Language) => void;
   calmMotion: boolean;
   onToggleCalmMotion: () => void;
+  largeText?: boolean;
+  onToggleLargeText?: () => void;
   onAuthenticated: (token: string, user: PublicUser) => void;
 }
 
@@ -34,6 +38,8 @@ export function OnboardingFlow({
   onSelectLanguage,
   calmMotion,
   onToggleCalmMotion,
+  largeText = false,
+  onToggleLargeText,
   onAuthenticated,
 }: OnboardingFlowProps) {
   const t = getCopy(language);
@@ -69,19 +75,6 @@ export function OnboardingFlow({
   const handleLanguagePick = (lang: Language) => {
     onSelectLanguage(lang);
     setStep('auth');
-  };
-
-  const handleDemo = async (demoKey: 'patient' | 'doctor1' | 'doctor2') => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.demoLogin(demoKey, language);
-      onAuthenticated(res.token, res.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to sign in');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleSubmitRegister = async (e: React.FormEvent) => {
@@ -183,7 +176,7 @@ export function OnboardingFlow({
           <motion.div
             whileHover={{ rotate: [0, -8, 8, 0] }}
             transition={{ duration: 0.45 }}
-            className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-md shadow-teal-600/25"
+            className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-700 to-sky-700 text-white flex items-center justify-center shadow-md shadow-teal-700/25"
           >
             <HeartPulse className="w-5 h-5" />
           </motion.div>
@@ -193,6 +186,21 @@ export function OnboardingFlow({
         </div>
 
         <div className="flex items-center gap-2">
+          {onToggleLargeText && (
+            <button
+              type="button"
+              onClick={onToggleLargeText}
+              aria-pressed={largeText}
+              className={`min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5 ${
+                largeText
+                  ? 'border-sky-700 bg-sky-700 text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-sky-600'
+              }`}
+            >
+              <Type className="w-3.5 h-3.5" />
+              <span>{largeText ? t.standardTextLabel : t.largeTextLabel}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onToggleCalmMotion}
@@ -422,46 +430,19 @@ export function OnboardingFlow({
                   </div>
                 </div>
 
-                {/* Instant Demo Sign-In */}
-                <div className="bg-slate-900 text-white rounded-3xl p-6 space-y-3">
-                  <p className="text-xs font-semibold text-teal-300">{t.quickDemo}</p>
-                  <p className="text-xs text-slate-300 leading-relaxed">
+                {/* Consent & Verified Care Summary */}
+                <div className="bg-gradient-to-br from-teal-900 to-sky-900 text-white rounded-3xl p-6 space-y-3 shadow-sm">
+                  <p className="text-xs font-semibold text-sky-200 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-teal-300" />
                     {language === 'ta'
-                      ? 'மாதிரித் தரவுகளுடன் உடனே பரிசோதிக்க கீழே உள்ள சுயவிவரத்தைத் தட்டவும்.'
-                      : 'Jump straight into the connected end-to-end prototype using realistic sample accounts.'}
+                      ? 'பாதுகாப்பான & சம்மத அடிப்படையிலான தளம்'
+                      : 'Private & Consent-Gated Care'}
                   </p>
-                  <div className="flex flex-col gap-2 pt-1">
-                    <SpringButton
-                      size="sm"
-                      variant="primary"
-                      disabled={loading}
-                      onClick={() => handleDemo('patient')}
-                      className="w-full justify-start"
-                    >
-                      <UserRound className="w-4 h-4" />
-                      {t.quickDemoPatient}
-                    </SpringButton>
-                    <SpringButton
-                      size="sm"
-                      variant="secondary"
-                      disabled={loading}
-                      onClick={() => handleDemo('doctor1')}
-                      className="w-full justify-start bg-slate-800 border border-slate-600 text-white hover:bg-slate-700"
-                    >
-                      <Stethoscope className="w-4 h-4 text-teal-300 shrink-0" />
-                      <span className="text-white">{t.quickDemoDoctor1}</span>
-                    </SpringButton>
-                    <SpringButton
-                      size="sm"
-                      variant="secondary"
-                      disabled={loading}
-                      onClick={() => handleDemo('doctor2')}
-                      className="w-full justify-start bg-slate-800 border border-slate-600 text-white hover:bg-slate-700"
-                    >
-                      <Stethoscope className="w-4 h-4 text-teal-300 shrink-0" />
-                      <span className="text-white">{t.quickDemoDoctor2}</span>
-                    </SpringButton>
-                  </div>
+                  <p className="text-xs text-teal-100 leading-relaxed">
+                    {language === 'ta'
+                      ? 'உங்கள் மருத்துவ ஆவணங்கள் நீங்கள் சம்மதிக்கும் மருத்துவர்களுக்கு மட்டுமே காட்டப்படும். அனைத்து மருத்துவர் தகுதிகளும் சரிபார்க்கப்பட்ட பின்பே சரிபார்ப்பு முத்திரை வழங்கப்படும்.'
+                      : 'Your health records stay encrypted and private until you explicitly choose to share them during booking or referral. Credential badges are displayed strictly after verification.'}
+                  </p>
                 </div>
               </div>
 
@@ -745,6 +726,7 @@ export function OnboardingFlow({
           )}
         </AnimatePresence>
       </main>
+      <AppFooter language={language} />
     </div>
   );
 }
